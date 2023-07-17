@@ -44,7 +44,9 @@ public class Deliveryman : MonoBehaviour
 
         if(destination && destination.CanInteract(this)){
             BuildingInteraction(destination);
-        } 
+        }
+        if(navMeshAgent.pathStatus==NavMeshPathStatus.PathPartial)
+            ReturnToWareHouse(); 
     }
 
     //String describing current activity of the deliveryman
