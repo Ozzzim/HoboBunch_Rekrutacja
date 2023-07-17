@@ -1,0 +1,240 @@
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using UnityEngine;
+using UnityEngine.AI;
+
+public class Deliveryman : MonoBehaviour
+{
+    /*
+     * Older version of the Deliveryman class. Here deliveryman actually had to visit a place before knowing that it lacks resources for output.
+     */
+    protected NavMeshAgent navMeshAgent;
+    protected Animator animator;
+
+    public GameResource inventory;
+    protected BuildingWithInventory destination;
+    public int capacity = 1;//How much can postman carry
+    public int workRadius = 20;//How far from assigned Warehouse can deliveryman work
+    protected GameResourceSO needs;//Argument when picking items from the warehouse
+    protected bool waiting = true;//Flag to prevent NewBuildingNotify() from prematurely activating the deliveryman
+
+    [SerializeField]
+    FloatingText floatingTextPrefab;
+    [SerializeField]
+    StorageBuilding attachedWarehouse;
+    [SerializeField]
+    GameObject resourceBox;
+
+    // Start is called before the first frame update
+    void Start()
+    {
+        navMeshAgent = GetComponent<NavMeshAgent>();
+        animator = GetComponentInChildren<Animator>();
+        resourceBox.SetActive(inventory!=null);
+
+        StartCoroutine(WaitAndPickNewDestination());//Is this a good idea?
+    }
+
+    // Update is called once per frame
+    void Update()
+    {
+        //Animation
+        animator.SetBool("HasResources", inventory!=null);
+        animator.SetBool("Walking", navMeshAgent.velocity.magnitude>0.1f);
+
+        //if(Input.GetKeyDown(KeyCode.X)){SetDestination(GetLocalBuildings()[1]);}//Debug, remove later
+
+        if(destination && destination.CanInteract(this)){
+            BuildingInteraction(destination);
+        }
+    }
+
+    public string GetThoughts(){
+
+        if(inventory!=null){
+            if(destination)
+                return "Moving "+inventory.resourceSO.name+" to "+destination.name;
+            else
+                return "Carrying "+inventory.resourceSO.name;
+        }
+        if(destination)
+            return "Heading to"+destination.name;
+        return "Thinking about the meaning of life";
+    }
+
+    //Display deliveryman current status
+    public void OnMouseDown(){
+        var floatingText = Instantiate(floatingTextPrefab, transform.position + Vector3.up, Quaternion.identity, transform);
+        floatingText.SetText(GetThoughts());
+    }
+
+    public bool SetDestination(BuildingWithInventory bwi){
+        if(bwi){
+            navMeshAgent.SetDestination(bwi.GetEnterance().position);
+            destination = bwi;
+            return true;
+        }
+        destination = null;
+        return false;
+    }
+
+    void OnDrawGizmos(){
+        Gizmos.color = Color.blue;
+        if(attachedWarehouse)
+            Gizmos.DrawWireSphere(attachedWarehouse.transform.position,workRadius);
+    }
+
+    protected IEnumerator WaitAndPickNewDestination(float waitTime=1f){
+        waiting = true;
+        yield return new WaitForSeconds(waitTime);
+        BuildingWithInventory bwi = GetMostImportantBuilding(GetLocalBuildings());
+        waiting = false;
+    }
+
+    protected bool BuildingInteraction(BuildingWithInventory building, GameResourceSO neededResource=null){
+        destination = null;//Nulled so Update() won't call BuildingInteraction again
+        if(inventory == null){//Output
+                if(building == attachedWarehouse){//When using the warehouse
+                    if(needs && building.HasResource(needs)){
+                        inventory = building.GetResource(needs,capacity);
+                        resourceBox.SetActive(true);
+                        if(!SetDestination(GetMostImportantBuilding(GetBuildingsNeedingResource(inventory.resourceSO))))
+                            SetDestination(attachedWarehouse);
+                        needs=null;
+                    } else {//If warehouse doesn't have the resources
+                        SetDestination(GetMostImportantBuilding(GetLocalBuildings()));//Begin again
+                    }
+                } else { //When using buildings with specified inputs/outputs
+                    if(building.OutputResource() && building.HasOutputResource()){
+                        inventory = building.GetResource(capacity);
+                        resourceBox.SetActive(true);
+                        if(!SetDestination(GetMostImportantBuilding(GetBuildingsNeedingResource(inventory.resourceSO))))
+                            SetDestination(attachedWarehouse);
+                    } else {
+                        if(building.HasEnoughInputResource())
+                            StartCoroutine(WaitBeforeBuildingInteraction(building));
+                        else
+                            MissingMaterial(building);
+                    }
+                }          
+        } else {//Input
+            if((building.InputResource()==inventory.resourceSO || building == attachedWarehouse) && building.PutResource(inventory)){
+                inventory = null;
+                resourceBox.SetActive(false);
+                SetDestination(GetMostImportantBuilding(GetLocalBuildings()));//Begin again
+            } else 
+                SetDestination(attachedWarehouse);//In a weird case where deliveryman delivered item to a facility that doesn't need it.
+        }
+        //destination = null;//GetNewDestination();
+        return true;
+    }
+
+    protected void MissingMaterial(BuildingWithInventory building){
+        if(attachedWarehouse.HasResource(building.InputResource())){
+            SetDestination(attachedWarehouse);
+            needs = building.InputResource();
+        } else {
+            needs = null;
+            if(!SetDestination(GetBuildingMakingResource(building.InputResource())))
+                ReturnToWareHouse();
+        }
+    }
+
+    protected IEnumerator WaitBeforeBuildingInteraction(BuildingWithInventory building, float waitTime=3f){
+        waiting = true;
+        yield return new WaitUntil(building.HasOutputResource);
+        SetDestination(building);
+        waiting = false;
+    }
+
+    public void ReturnToWareHouse(){
+        navMeshAgent.SetDestination(attachedWarehouse.GetEnterance().position);
+        destination=null;
+    }
+
+    //===== Destination finders =====//
+    protected BuildingWithInventory[] GetBuildingsNeedingResource(GameResourceSO grso){
+        BuildingWithInventory[] bwiList = GetLocalBuildings();
+        
+        //Find all Buildings that need the grso resource
+        bwiList = Array.FindAll(bwiList,(x) => x.InputResource() == grso);
+        return bwiList;
+    }
+    protected BuildingWithInventory GetBuildingNeedingResource(GameResourceSO grso){
+        BuildingWithInventory[] bwiList = GetLocalBuildings();
+        
+        //Find all Buildings that need the grso resource
+        bwiList = Array.FindAll(bwiList,(x) => x.InputResource() == grso);
+
+        //Get the closest Building
+        BuildingWithInventory closest=null;
+        float minDistance=0;
+        float curDistance;
+        foreach(BuildingWithInventory bwi in bwiList){
+            curDistance = Vector3.Distance(bwi.transform.position,transform.position);
+            if(closest==null || minDistance>curDistance){
+                minDistance = curDistance;
+                closest = bwi;
+            }
+        }
+
+        return closest;
+    }
+    protected BuildingWithInventory GetBuildingMakingResource(GameResourceSO grso){
+        BuildingWithInventory[] bwiList = GetLocalBuildings();
+        
+        //Find all Buildings that need the grso resource
+        bwiList = Array.FindAll(bwiList,(x) => x.OutputResource() == grso);
+
+        //Get the closest Building
+        BuildingWithInventory closest=null;
+        float minDistance=0;
+        float curDistance;
+        foreach(BuildingWithInventory bwi in bwiList){
+            curDistance = Vector3.Distance(bwi.transform.position,transform.position);
+            if(closest==null || minDistance>curDistance){
+                minDistance = curDistance;
+                closest = bwi;
+            }
+        }
+
+        return closest;
+    }
+
+    protected BuildingWithInventory[] GetLocalBuildings(){
+        Collider[] localColliders = Physics.OverlapSphere(attachedWarehouse.transform.position, workRadius, LayerMask.GetMask("ProducerBuilding"));
+
+        //Extract BuildingWithInventory from Collider data
+        BuildingWithInventory[] localBuildings = new BuildingWithInventory[localColliders.Length];
+        for(int i=0;i<localColliders.Length;i++){
+            localBuildings[i] = localColliders[i].GetComponent<BuildingWithInventory>();
+        }
+        //Array.Sort(localBuildings,((x,y)=> x.GetPriority()-y.GetPriority()));
+
+        return localBuildings;
+    }
+
+    protected BuildingWithInventory GetMostImportantBuilding(BuildingWithInventory[] buildings){
+        BuildingWithInventory returned=null;
+        foreach(BuildingWithInventory bwi in buildings){
+            if(returned==null || returned.GetPriority()<=bwi.GetPriority())
+                /*if(returned.GetPriority()!=bwi.GetPriority())
+                    returned = bwi;
+                else
+                    returned = (UnityEngine.Random.Range(0,1)>0.5f ? bwi : returned);*///Random chance to change the target if both have the same priority
+                returned=bwi;
+        }
+        return returned;
+    }
+
+    //Called after placing a new building
+    public static void NewBuildingNotify(){
+        Deliveryman[] deliverymen = FindObjectsByType<Deliveryman>(FindObjectsSortMode.None);
+        foreach(Deliveryman d in deliverymen){
+            if(!d.destination && !d.waiting)
+                d.SetDestination(d.GetMostImportantBuilding(d.GetLocalBuildings()));
+        }
+    }
+}
+
