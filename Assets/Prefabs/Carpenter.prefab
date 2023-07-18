@@ -99,6 +99,7 @@ MonoBehaviour:
   resourceSOs:
   - {fileID: 11400000, guid: 795efae3f160520408a9f448e352f7e7, type: 2}
   - {fileID: 11400000, guid: 0c3e8e98b5cb351459d436f738749146, type: 2}
+  - {fileID: 11400000, guid: 0c3e8e98b5cb351459d436f738749146, type: 2}
   resourceViewPrefab: {fileID: 946835213587290941, guid: a915a93d510cacc4ca14d39201d034ad,
     type: 3}
   resourceViewsParent: {fileID: 6032318365328973212}

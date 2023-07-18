@@ -45,8 +45,8 @@ public class Deliveryman : MonoBehaviour
         if(destination && destination.CanInteract(this)){
             BuildingInteraction(destination);
         }
-        if(navMeshAgent.pathStatus==NavMeshPathStatus.PathPartial)
-            ReturnToWareHouse(); 
+        //if(navMeshAgent.pathStatus==NavMeshPathStatus.PathPartial)
+        //    ReturnToWareHouse(); 
     }
 
     //String describing current activity of the deliveryman
@@ -72,9 +72,20 @@ public class Deliveryman : MonoBehaviour
     //Set movement destination of the target. Returns false if given building is null;
     public bool SetDestination(BuildingWithInventory bwi){
         if(bwi){
+            ///*
             navMeshAgent.SetDestination(bwi.GetEnterance().position);
             destination = bwi;
             return true;
+            //*/
+            /*Version with path checking
+            NavMeshPath path = new NavMeshPath();
+            navMeshAgent.CalculatePath(bwi.GetEnterance().position,path);
+            if(path.status == NavMeshPathStatus.PathComplete){
+                navMeshAgent.SetPath(path);
+                destination = bwi;
+                return true;
+            }
+            //*/          
         }
         destination = null;
         return false;
@@ -168,10 +179,15 @@ public class Deliveryman : MonoBehaviour
         waiting = false;
     }
 
+    protected IEnumerator CheckNavPath(){
+        while(navMeshAgent.pathPending)
+            yield return null;
+        Debug.Log(navMeshAgent.pathStatus);
+    }
     //Used in cases when deliveryman gets stuck
     public void ReturnToWareHouse(){
-        navMeshAgent.SetDestination(attachedWarehouse.GetEnterance().position);
-        destination=null;
+        if(!SetDestination(attachedWarehouse))
+            navMeshAgent.Warp(attachedWarehouse.transform.position);//If there's no path, warp out
     }
 
     //===== Destination finders =====//
@@ -274,7 +290,14 @@ public class Deliveryman : MonoBehaviour
         }
         //Array.Sort(localBuildings,((x,y)=> x.GetPriority()-y.GetPriority()));
 
-        return localBuildings;
+        return Array.FindAll(localBuildings,(x) => IsReachable(x));//Extract only destinations that can be reached
+        //return localBuildings;
+    }
+    private bool IsReachable(BuildingWithInventory bwi){
+        NavMeshPath path = new NavMeshPath();
+        navMeshAgent.CalculatePath(bwi.GetEnterance().position,path);
+        
+        return path.status == NavMeshPathStatus.PathComplete;
     }
 
     //Returns building with the highest priority

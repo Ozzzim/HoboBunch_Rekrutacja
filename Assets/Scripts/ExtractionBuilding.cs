@@ -60,13 +60,12 @@ public class ExtractionBuilding : BuildingWithInventory
         return null;
     }
     public override bool PutResource(GameResource gameResource){return false;}
+    public override int GetPriority(){ return basePriority + (HasOutputResource()?1:0);}//Priority is higher if extraction site has resources ready.
 
     public override GameResourceSO InputResource(){ return null;}
     public override bool HasEnoughInputResource(){ return true;}
 
-    public override GameResourceSO OutputResource(){
-        return resourceSO;
-    }
+    public override GameResourceSO OutputResource(){ return resourceSO;}
     public override bool HasOutputResource(){ return resourcesList.HasResource(resourceSO);}
 
 }
